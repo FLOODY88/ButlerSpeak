@@ -1,0 +1,34 @@
+# Compiled class file
+*.class
+.classpath
+.project
+
+# Log file
+*.log
+
+# BlueJ files
+*.ctxt
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files #
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+/bin
+/releases
+/target
+/plugins
+
+# IntelliJ files
+/.idea
+*.iml
+*.sh
+
+hs_err_pid*
+.DS_STORE
