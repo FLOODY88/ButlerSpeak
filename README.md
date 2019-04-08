@@ -1,6 +1,6 @@
 ## ButlerSpeak
 
-![Total Downloads](https://img.shields.io/github/downloads/FLOODY88/ButlerSpeak/total.svg) [![Issues Open](https://img.shields.io/github/issues/FLOODY88/ButlerSpeak.svg)](../../issues) [![Latest Release](https://img.shields.io/github/release/FLOODY88/ButlerSpeak.svg)](../../releases) [![License](https://img.shields.io/github/license/FLOODY88/ButlerSpeak.svg)](../master/LICENSE) 
+![Total Downloads](https://img.shields.io/github/downloads/FLOODY88/ButlerSpeak/total.svg) [![Issues Open](https://img.shields.io/github/issues/FLOODY88/ButlerSpeak.svg)](../../issues) [![Latest Release](https://img.shields.io/github/release/FLOODY88/ButlerSpeak.svg)](../../releases) 
 
 An open-source TeamSpeak 3 server query bot written in Java.
 
@@ -27,7 +27,7 @@ All features can be disabled by editing the corresponding configuration file, fo
 
 #### Download
 
-Download the [latest release](../../releases) and upload the `jar` to your server.
+Download the [latest release](../../releases/latest) and upload the `jar` to your server.
 
 #### Configuration
 
@@ -76,7 +76,7 @@ The following example illustrates how all features can be enabled:
 #	badname 		- The name checker for forbidden words
 #	recording 		- The recording checker
 #	support 		- The support handler
-# 	advertisement 	- The advertiser
+# 	advertisement 	        - The advertisement
 # 	afk 			- The afk manager
 bot.plugins=welcome, badname, recording, support, advertisement, afk
 ```
