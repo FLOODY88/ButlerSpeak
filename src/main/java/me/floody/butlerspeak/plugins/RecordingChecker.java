@@ -26,6 +26,7 @@ import com.github.theholywaffle.teamspeak3.api.wrapper.Client;
 import me.floody.butlerspeak.ButlerSpeak;
 import me.floody.butlerspeak.config.ConfigNode;
 import me.floody.butlerspeak.config.Configuration;
+import me.floody.butlerspeak.utils.Log;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -42,6 +43,7 @@ public class RecordingChecker extends TS3EventAdapter {
   private final Configuration config;
   private final ScheduledExecutorService executor;
   private final Map<Integer, RecordingManager> workers;
+  private final Log logger;
 
   /** Simply constructs a new instance. */
   public RecordingChecker(ButlerSpeak plugin) {
@@ -49,6 +51,7 @@ public class RecordingChecker extends TS3EventAdapter {
 	this.config = plugin.getConfig();
 	this.executor = new ScheduledThreadPoolExecutor(1);
 	this.workers = new HashMap<>();
+	this.logger = plugin.getAndSetLogger(this.getClass().getName());
 
 	for (Client client : api.getClients()) {
 	  int[] bypassGroups = config.getIntArray(ConfigNode.RECORDING_GROUPS);
@@ -126,6 +129,7 @@ public class RecordingChecker extends TS3EventAdapter {
 	  switch (config.get(ConfigNode.RECORDING_ACTION)) {
 		case "kick":
 		  api.kickClientFromServer(config.get(ConfigNode.RECORDING_KICK_MSG), client);
+		  logger.info("Kicked client " + client.getNickname() + " for recording in a forbidden channel.");
 		  break;
 		case "move":
 		  api.kickClientFromChannel(client);

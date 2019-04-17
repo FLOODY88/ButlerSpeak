@@ -27,6 +27,7 @@ import com.github.theholywaffle.teamspeak3.api.wrapper.Client;
 import me.floody.butlerspeak.ButlerSpeak;
 import me.floody.butlerspeak.config.ConfigNode;
 import me.floody.butlerspeak.config.Configuration;
+import me.floody.butlerspeak.utils.Log;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -43,6 +44,7 @@ public class AfkManager extends TS3EventAdapter {
   private final Configuration config;
   private final ScheduledExecutorService executor;
   private final Map<Integer, AfkMover> workers;
+  private final Log logger;
 
   /**
    * Constructs a new instance.
@@ -57,6 +59,7 @@ public class AfkManager extends TS3EventAdapter {
 	this.config = plugin.getConfig();
 	this.executor = new ScheduledThreadPoolExecutor(1);
 	this.workers = new HashMap<>();
+	this.logger = plugin.getAndSetLogger(this.getClass().getName());
 
 	for (Client client : api.getClients()) {
 	  int[] bypassGroups = config.getIntArray(ConfigNode.AFK_GROUPS_BYPASS);
@@ -107,7 +110,7 @@ public class AfkManager extends TS3EventAdapter {
 	if (worker == null) {
 	  return;
 	}
-	System.out.println("shutdown on leave");
+
 	worker.shutdown();
   }
 
@@ -173,6 +176,7 @@ public class AfkManager extends TS3EventAdapter {
 	  // from the server.
 	  if (config.getBoolean(ConfigNode.AFK_KICK) && idleTime > config.getInt(ConfigNode.AFK_KICK_TIME) && isIdle) {
 		api.kickClientFromServer(config.get(ConfigNode.AFK_KICK_REASON), clientId);
+		logger.info("Kicked client " + client.getNickname() + "( " + clientId + ") for being idle too long!");
 	  }
 
 	  reschedule();

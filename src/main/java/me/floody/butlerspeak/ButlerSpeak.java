@@ -22,14 +22,17 @@ import com.github.theholywaffle.teamspeak3.TS3Api;
 import com.github.theholywaffle.teamspeak3.TS3Config;
 import com.github.theholywaffle.teamspeak3.TS3Query;
 import com.github.theholywaffle.teamspeak3.api.exception.TS3CommandFailedException;
+import com.github.theholywaffle.teamspeak3.api.exception.TS3ConnectionFailedException;
 import me.floody.butlerspeak.config.ConfigNode;
 import me.floody.butlerspeak.config.Configuration;
 import me.floody.butlerspeak.plugins.*;
+import me.floody.butlerspeak.utils.Log;
 
 public class ButlerSpeak {
 
   private final TS3Api api;
   private final Configuration config = new Configuration();
+  private final Log logger = new Log(this.getClass().getName());
   private static volatile int clientId;
 
   public static void main(String[] args) {
@@ -61,8 +64,13 @@ public class ButlerSpeak {
 	try {
 	  api.login(config.get(ConfigNode.QUERY_USERNAME), config.get(ConfigNode.QUERY_PASSWORD));
 	} catch (TS3CommandFailedException e) {
-	  e.printStackTrace();
-	  System.exit(0);
+	  logger.error("Could not connect to host " + config.get(ConfigNode.SERVER_HOST) + ". Please check your " +
+			  "login credentials!", e);
+	  System.exit(1);
+	} catch (TS3ConnectionFailedException e) {
+	  logger.error("Could not establish a connection to " + config.get(ConfigNode.SERVER_HOST) + ". Please check your" +
+			  " hostname (note that the port is not part of the hostname) and ports.", e);
+	  System.exit(1);
 	}
 
 	api.selectVirtualServerByPort(config.getInt(ConfigNode.SERVER_PORT),
@@ -98,8 +106,12 @@ public class ButlerSpeak {
 		  new Advertisement(this);
 		  break;
 		default:
+		  logger.error("Could not load plugin: " + plugin + "."
+				  + " Please check your configuration file. Plugins should be separated by a comma (,).");
 		  break;
 	  }
+
+	  logger.info("Successfully loaded plugin: " + plugin);
 	}
   }
 
@@ -119,5 +131,9 @@ public class ButlerSpeak {
    */
   public Configuration getConfig() {
 	return config;
+  }
+
+  public Log getAndSetLogger(String name) {
+	return new Log(name);
   }
 }

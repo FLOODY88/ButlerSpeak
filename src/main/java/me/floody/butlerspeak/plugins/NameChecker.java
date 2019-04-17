@@ -28,6 +28,7 @@ import com.github.theholywaffle.teamspeak3.api.wrapper.Client;
 import me.floody.butlerspeak.ButlerSpeak;
 import me.floody.butlerspeak.config.ConfigNode;
 import me.floody.butlerspeak.config.Configuration;
+import me.floody.butlerspeak.utils.Log;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -46,6 +47,7 @@ public class NameChecker extends TS3EventAdapter {
   private final Configuration config;
   private final ScheduledExecutorService executor;
   private final Map<Integer, CheckClientName> workers;
+  private final Log logger;
 
   /**
    * Initializes a new instance.
@@ -60,6 +62,7 @@ public class NameChecker extends TS3EventAdapter {
 	this.config = plugin.getConfig();
 	this.executor = new ScheduledThreadPoolExecutor(1);
 	this.workers = new HashMap<>();
+	this.logger = plugin.getAndSetLogger(this.getClass().getName());
 
 	// On first start, check the existing channels for bad names.
 	for (Channel channel : api.getChannels()) {
@@ -157,15 +160,18 @@ public class NameChecker extends TS3EventAdapter {
 
 		  final String newChannelName = config.get(ConfigNode.BADNAME_RENAME).replaceAll("%date%",
 				  formattedDate.format(new Date())).replaceAll(" ", "\u0020");
-		  // Edit the channel to the specified name and add a timestamp to prevent other channels from
+		  // Edit the channel to the specified name and optionally add a timestamp to prevent other channels from
 		  // being deleted if one channel already has the censored name.
 		  api.editChannel(channelId, ChannelProperty.CHANNEL_NAME, newChannelName);
+		  logger.info("Renamed channel " + channelId + " to " + newChannelName + " for using forbidden words.");
 		} catch (TS3CommandFailedException ex) {
 		  api.deleteChannel(channelId);
+		  logger.info("Failed to rename channel " + channelId + ", channel has been deleted instead.");
 		}
 	  } else if (channelAction.equals("delete")) {
 		try {
 		  api.deleteChannel(channelId);
+		  logger.info("Deleted channel " + channelId + " for using forbidden words.");
 		} catch (TS3CommandFailedException ex) {
 		  ex.printStackTrace();
 		}
@@ -201,11 +207,14 @@ public class NameChecker extends TS3EventAdapter {
 			if (isWarned) {
 			  break;
 			}
+
 			api.pokeClient(client.getId(), config.get(ConfigNode.BADNAME_CLIENT_MESSAGE));
 			isWarned = true;
+			logger.info("Client " + client.getNickname() + " has been warned for using forbidden words.");
 			break;
 		  case "kick":
 			api.kickClientFromServer(config.get(ConfigNode.BADNAME_CLIENT_KICK_MESSAGE), client);
+			logger.info("Client " + client.getNickname() + " has been kicked for using forbidden words.");
 			break;
 		}
 	  }

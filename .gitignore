@@ -3,7 +3,8 @@
 .classpath
 .project
 
-# Log file
+# Log files
+/logs
 *.log
 
 # BlueJ files
