@@ -22,6 +22,7 @@ import com.github.theholywaffle.teamspeak3.TS3Api;
 import com.github.theholywaffle.teamspeak3.api.event.ClientJoinEvent;
 import com.github.theholywaffle.teamspeak3.api.event.ClientLeaveEvent;
 import com.github.theholywaffle.teamspeak3.api.event.TS3EventAdapter;
+import com.github.theholywaffle.teamspeak3.api.exception.TS3CommandFailedException;
 import com.github.theholywaffle.teamspeak3.api.wrapper.Client;
 import me.floody.butlerspeak.ButlerSpeak;
 import me.floody.butlerspeak.config.ConfigNode;
@@ -29,10 +30,12 @@ import me.floody.butlerspeak.config.Configuration;
 import me.floody.butlerspeak.utils.Log;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 /**
  * Checks whether a client is recording.
@@ -44,6 +47,8 @@ public class RecordingChecker extends TS3EventAdapter {
   private final ScheduledExecutorService executor;
   private final Map<Integer, RecordingManager> workers;
   private final Log logger;
+  private final List<Integer> ignoredChannel;
+  private final List<Integer> ignoredGroups;
 
   /** Simply constructs a new instance. */
   public RecordingChecker(ButlerSpeak plugin) {
@@ -52,22 +57,44 @@ public class RecordingChecker extends TS3EventAdapter {
 	this.executor = new ScheduledThreadPoolExecutor(1);
 	this.workers = new HashMap<>();
 	this.logger = plugin.getAndSetLogger(this.getClass().getName());
+	this.ignoredChannel = config.getIntegerList(ConfigNode.RECORDING_CHANNEL);
+	this.ignoredGroups = config.getIntegerList(ConfigNode.RECORDING_GROUPS);
 
-	for (Client client : api.getClients()) {
-	  int[] bypassGroups = config.getIntArray(ConfigNode.RECORDING_GROUPS);
-	  final int clientId = client.getId();
+	api.getClients().forEach(client -> {
+	  if (IntStream.of(client.getServerGroups()).anyMatch(ignoredGroups::contains)) {
+		return;
+	  }
+
+	  int clientId = client.getId();
 	  final RecordingManager worker = new RecordingManager(clientId);
-
 	  workers.put(clientId, worker);
 	  executor.schedule(worker, 0, TimeUnit.SECONDS);
-	}
+
+	  // After scheduling the task for a client, wait a bit to prevent flooding.
+	  try {
+		Thread.sleep(350);
+	  } catch (InterruptedException ex) {
+		// Nothing
+	  }
+	});
   }
 
   @Override
   public void onClientJoin(ClientJoinEvent e) {
-	final int clientId = e.getClientId();
-	final RecordingManager worker = new RecordingManager(clientId);
+	final Client client;
+	try {
+	  client = api.getClientInfo(e.getClientId());
+	} catch (TS3CommandFailedException ex) {
+	  // Client is a query, do nothing.
+	  return;
+	}
 
+	if (client.isServerQueryClient() || IntStream.of(client.getServerGroups()).anyMatch(ignoredGroups::contains)) {
+	  return;
+	}
+
+	int clientId = client.getId();
+	final RecordingManager worker = new RecordingManager(clientId);
 	workers.put(clientId, worker);
 	executor.schedule(worker, 0, TimeUnit.SECONDS);
   }
@@ -82,14 +109,18 @@ public class RecordingChecker extends TS3EventAdapter {
 	worker.shutdown();
   }
 
-  /** Manages recording clients and performs the specified action. */
+  /**
+   * Manages recording clients and performs the specified action.
+   */
   private class RecordingManager implements Runnable {
 
 	private boolean cancelled;
 	private final int clientId;
 	private Client client;
 
-	/** Constructs a new instance for the given clientId. */
+	/**
+	 * Constructs a new instance for the given clientId.
+	 */
 	private RecordingManager(int clientId) {
 	  this.clientId = clientId;
 	}
@@ -97,32 +128,13 @@ public class RecordingChecker extends TS3EventAdapter {
 	@Override
 	public void run() {
 	  if (cancelled) {
-		this.shutdown();
 		return;
 	  }
 
 	  client = api.getClientInfo(clientId);
-	  final int[] bypassGroups = config.getIntArray(ConfigNode.RECORDING_GROUPS);
-	  for (int group : bypassGroups) {
-		if (client.isInServerGroup(group)) {
-		  cancelled = true;
-		  return;
-		}
-	  }
-
-	  if (!client.isRecording()) {
-		// When the client is not recording, reschedule the task and do nothing.
+	  if (!client.isRecording() || ignoredChannel.contains(client.getChannelId())) {
 		reschedule();
 		return;
-	  }
-
-	  int[] ignoredChannel = config.getIntArray(ConfigNode.RECORDING_CHANNEL);
-	  for (int channel : ignoredChannel) {
-		if (client.getChannelId() == channel) {
-		  // When the client is in a channel that should be ignored, reschedule the task and do nothing
-		  reschedule();
-		  return;
-		}
 	  }
 
 	  // Based on the action, the recording client will either be kicked or moved to the default channel.
@@ -140,12 +152,16 @@ public class RecordingChecker extends TS3EventAdapter {
 	  reschedule();
 	}
 
-	/** Cancels the {@link RecordingChecker#executor}. This method is called from {@link RecordingChecker#onClientLeave} */
+	/**
+	 * Cancels the {@link RecordingChecker#executor}. This method is called from {@link RecordingChecker#onClientLeave}
+	 */
 	private void shutdown() {
 	  cancelled = true;
 	}
 
-	/** Reschedules the {@link RecordingChecker#executor}. */
+	/**
+	 * Reschedules the {@link RecordingChecker#executor}.
+	 */
 	private void reschedule() {
 	  executor.schedule(this, (config.getBoolean(ConfigNode.BOT_SLOWMODE) ? 5 : 1), TimeUnit.SECONDS);
 	}
