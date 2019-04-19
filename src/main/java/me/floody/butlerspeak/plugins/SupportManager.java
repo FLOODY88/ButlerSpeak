@@ -29,9 +29,7 @@ import me.floody.butlerspeak.config.ConfigNode;
 import me.floody.butlerspeak.config.Configuration;
 
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.IntStream;
 
 /**
@@ -43,7 +41,9 @@ public class SupportManager extends TS3EventAdapter {
   private final Configuration config;
   private final int queryId;
 
-  /** Simply constructs a new instance. */
+  /**
+   * Simply constructs a new instance.
+   */
   public SupportManager(ButlerSpeak plugin) {
 	this.api = plugin.getApi();
 	this.config = plugin.getConfig();
@@ -52,77 +52,47 @@ public class SupportManager extends TS3EventAdapter {
 
   @Override
   public void onClientMoved(ClientMovedEvent e) {
-	final int supportChannel = config.getInt(ConfigNode.SUPPORT_CHANNEL);
+	int supportChannel = config.getInt(ConfigNode.SUPPORT_CHANNEL);
 	if (e.getTargetChannelId() != supportChannel) {
-	  // If the target channel is not the support channel, do nothing.
 	  return;
 	}
 
-	final int clientId = e.getClientId();
+	int clientId = e.getClientId();
 	final Client client;
 	try {
 	  client = api.getClientInfo(clientId);
 	} catch (TS3CommandFailedException ex) {
-	  // The client is a query, so do nothing.
 	  return;
 	}
 
-	final int[] notifyGroups = config.getIntArray(ConfigNode.SUPPORT_NOTIFY_GROUPS);
-	for (int group : client.getServerGroups()) {
-	  if (IntStream.of(notifyGroups).anyMatch(x -> x == group)) {
-		// If an admin enters the support channel, do nothing.
-		return;
-	  }
-	}
-
-	final String notifyAction = config.get(ConfigNode.SUPPORT_NOTIFY_ACTION);
-	final String notifyMessage = config.get(ConfigNode.SUPPORT_NOTIFY_MESSAGE)
-			.replaceAll("%clientName%", "[URL=" + client.getClientURI() + "]" + client.getNickname() + "[/URL]");
-	int pokedClients = 0;
-	for (Client notifyClient : api.getClients()) {
-	  for (int notifyGroup : notifyGroups) {
-		if (!notifyClient.isInServerGroup(notifyGroup)) {
-		  // Filter any client that should not be notified
-		  continue;
-		}
-
-		// Based on the action, the client will either be poked or sent a private message.
-		final int notifyClientId = notifyClient.getId();
-		if (notifyAction.equals("poke")) {
-		  api.pokeClient(notifyClientId, notifyMessage);
-		} else if (notifyAction.equals("chat")) {
-		  api.sendPrivateMessage(notifyClientId, notifyMessage);
-		}
-
-		++pokedClients;
-	  }
-	}
-
-	if (pokedClients < 1) {
-	  final String notifyFailMessage = config.get(ConfigNode.SUPPORT_NOTIFY_FAIL);
-	  if (notifyAction.equals("poke")) {
-		api.pokeClient(clientId, notifyFailMessage);
-	  } else if (notifyAction.equals("chat")) {
-		api.sendPrivateMessage(clientId, notifyFailMessage);
-	  }
-
-	  // No available client, thus cancel the task.
+	List<Integer> notifyGroups = config.getIntegerList(ConfigNode.SUPPORT_NOTIFY_GROUPS);
+	if (IntStream.of(client.getServerGroups()).anyMatch(notifyGroups::contains)) {
 	  return;
 	}
 
-	// When specified, a sub-channel for the requested support will be created
+	final List<Client> notifiedClients = new ArrayList<>();
+	api.getClients().forEach(c -> {
+	  if (IntStream.of(c.getServerGroups()).anyMatch(notifyGroups::contains)) {
+		notifiedClients.add(c);
+	  }
+	});
+
+	if (notifiedClients.size() < 1) {
+	  api.sendPrivateMessage(client.getId(), config.get(ConfigNode.SUPPORT_NOTIFY_FAIL));
+	  return;
+	}
+
 	if (config.getBoolean(ConfigNode.SUPPORT_CREATE_CHANNEL)) {
 	  createChannel(supportChannel, client);
 	}
 
-	// Based on the action, the client who requested support, will either be poked or sent a message.
-	String notifiedMessage = config.get(ConfigNode.SUPPORT_MESSAGE);
+	// Notify all clients who should be notified when a client requests help.
+	notifiedClients.forEach(c -> api.pokeClient(c.getId(),
+			config.get(ConfigNode.SUPPORT_NOTIFY_MESSAGE).replaceAll("%clientName%",
+					"[URL=" + client.getClientURI() + "]" + client.getNickname() + "[/URL]")));
 
-	if (notifyAction.equals("poke")) {
-	  api.pokeClient(clientId, notifiedMessage);
-	} else if (notifyAction.equals("chat")) {
-	  api.sendPrivateMessage(clientId, notifyMessage);
-	}
+	// Finally, notify the client who requested help.
+	api.sendPrivateMessage(clientId, config.get(ConfigNode.SUPPORT_MESSAGE));
   }
 
   /**
@@ -141,9 +111,9 @@ public class SupportManager extends TS3EventAdapter {
 	channelProperties.put(ChannelProperty.CPID, String.valueOf(parentId));
 
 	SimpleDateFormat formattedDate = new SimpleDateFormat();
-	formattedDate.applyPattern("hh:mm");
+	formattedDate.applyPattern("HH:mm");
 	String channelName = config.get(ConfigNode.SUPPORT_CHANNEL_NAME)
-			.replaceAll("%clientName", client.getNickname())
+			.replaceAll("%clientName%", client.getNickname())
 			.replaceAll("%date%", formattedDate.format(new Date()));
 
 	// Create the channel with the desired name and save it's id.

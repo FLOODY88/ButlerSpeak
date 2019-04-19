@@ -30,10 +30,12 @@ import me.floody.butlerspeak.config.Configuration;
 import me.floody.butlerspeak.utils.Log;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 /**
  * Manages idling clients.
@@ -45,6 +47,8 @@ public class AfkManager extends TS3EventAdapter {
   private final ScheduledExecutorService executor;
   private final Map<Integer, AfkMover> workers;
   private final Log logger;
+  private final List<Integer> ignoredGroups;
+  private final List<Integer> ignoredChannels;
 
   /**
    * Constructs a new instance.
@@ -60,20 +64,25 @@ public class AfkManager extends TS3EventAdapter {
 	this.executor = new ScheduledThreadPoolExecutor(1);
 	this.workers = new HashMap<>();
 	this.logger = plugin.getAndSetLogger(this.getClass().getName());
+	this.ignoredGroups = config.getIntegerList(ConfigNode.AFK_GROUPS_BYPASS);
+	this.ignoredChannels = config.getIntegerList(ConfigNode.AFK_CHANNEL_BYPASS);
 
-	for (Client client : api.getClients()) {
-	  int[] bypassGroups = config.getIntArray(ConfigNode.AFK_GROUPS_BYPASS);
-	  for (int group : bypassGroups) {
-		if (client.isInServerGroup(group) || client.isServerQueryClient()) {
-		  continue;
-		}
-
-		final int clientId = client.getId();
-		final AfkMover worker = new AfkMover(clientId);
-		workers.put(clientId, worker);
-		executor.schedule(worker, 0, TimeUnit.SECONDS);
+	api.getClients().forEach(client -> {
+	  if (IntStream.of(client.getServerGroups()).anyMatch(ignoredGroups::contains)) {
+		return;
 	  }
-	}
+
+	  int clientId = client.getId();
+	  final AfkMover worker = new AfkMover(clientId);
+	  executor.schedule(worker, 0, TimeUnit.SECONDS);
+
+	  // After scheduling the task for a client, wait a bit to prevent flooding.
+	  try {
+		Thread.sleep(350);
+	  } catch (InterruptedException ex) {
+		// Nothing
+	  }
+	});
   }
 
   @Override
@@ -83,20 +92,11 @@ public class AfkManager extends TS3EventAdapter {
 	try {
 	  client = api.getClientInfo(clientId);
 	} catch (TS3CommandFailedException ex) {
-	  // Client is a query, do nothing.
 	  return;
 	}
 
-	final int[] configGroups = config.getIntArray(ConfigNode.AFK_GROUPS_BYPASS);
-	// If and only if certain groups should be bypassed, check whether the client is in any of
-	// these groups.
-	if (configGroups[0] != -1) {
-	  for (int configGroup : configGroups) {
-		// If the client is in a group that bypasses, do nothing.
-		if (client.isInServerGroup(configGroup)) {
-		  return;
-		}
-	  }
+	if (client.isServerQueryClient() || IntStream.of(client.getServerGroups()).anyMatch(ignoredGroups::contains)) {
+	  return;
 	}
 
 	final AfkMover worker = new AfkMover(clientId);
@@ -124,7 +124,9 @@ public class AfkManager extends TS3EventAdapter {
 	private boolean cancelled;
 	private boolean isIdle;
 
-	/** Initializes a new instance for the given <code>clientId</code>. */
+	/**
+	 * Initializes a new instance for the given <code>clientId</code>.
+	 */
 	private AfkMover(int clientId) {
 	  this.clientId = clientId;
 	}
@@ -132,49 +134,37 @@ public class AfkManager extends TS3EventAdapter {
 	@Override
 	public void run() {
 	  if (cancelled) {
-		// Client disconnected, cancelling current task.
 		return;
 	  }
 
 	  final Client client = api.getClientInfo(clientId);
-	  int[] bypassChannel = config.getIntArray(ConfigNode.AFK_CHANNEL_BYPASS);
-	  if (bypassChannel[0] != -1) {
-		for (int channel : bypassChannel) {
-		  if (client.getChannelId() == channel) {
-			// If the client's current channel is one that should be ignored, reschedule and do nothing.
-			reschedule();
-			return;
-		  }
-		}
+	  if (ignoredChannels.contains(client.getChannelId())) {
+		reschedule();
+		return;
 	  }
 
 	  long idleTime = client.getIdleTime() / 1000;
-	  final int configIdleTime = config.getInt(ConfigNode.AFK_IDLE_TIME);
-	  final int afkChannelId = config.getInt(ConfigNode.AFK_CHANNEL);
-
-	  // Checks whether the client exceeded the idle time.
+	  long configIdleTime = config.getLong(ConfigNode.AFK_IDLE_TIME);
 	  if (idleTime > configIdleTime && !isIdle) {
-		// If the client should be notified, he will be either poked or sent a private message.
 		if (config.getBoolean(ConfigNode.AFK_NOTIFY)) {
-		  final String notifyMessage = config.get(ConfigNode.AFK_NOTIFY_MESSAGE);
-		  if (config.get(ConfigNode.AFK_NOTIFY_TYPE).equals("poke")) {
-			api.pokeClient(clientId, notifyMessage);
-		  } else {
-			api.sendPrivateMessage(clientId, notifyMessage);
+		  String notifyMessage = config.get(ConfigNode.AFK_NOTIFY_MESSAGE);
+		  switch (config.get(ConfigNode.AFK_NOTIFY_TYPE)) {
+			case "poke":
+			  api.pokeClient(clientId, notifyMessage);
+			  break;
+			case "chat":
+			  api.sendPrivateMessage(clientId, notifyMessage);
+			  break;
 		  }
 		}
 
-		// Finally, move the client to the specified channel and mark as idle.
-		api.moveClient(clientId, afkChannelId);
-		isIdle = true;
+		this.isIdle = true;
+		api.moveClient(clientId, config.getInt(ConfigNode.AFK_CHANNEL));
 	  } else if (idleTime < configIdleTime && isIdle) {
-		// The client is no longer idle.
-		isIdle = false;
+		this.isIdle = false;
 	  }
 
-	  // If the client exceeded the idle time before being kicked, the client will be removed
-	  // from the server.
-	  if (config.getBoolean(ConfigNode.AFK_KICK) && idleTime > config.getInt(ConfigNode.AFK_KICK_TIME) && isIdle) {
+	  if (config.getBoolean(ConfigNode.AFK_KICK) && (idleTime > config.getLong(ConfigNode.AFK_KICK_TIME) && isIdle)) {
 		api.kickClientFromServer(config.get(ConfigNode.AFK_KICK_REASON), clientId);
 		logger.info("Kicked client " + client.getNickname() + "( " + clientId + ") for being idle too long!");
 	  }
@@ -182,13 +172,17 @@ public class AfkManager extends TS3EventAdapter {
 	  reschedule();
 	}
 
-	/** Cancels the {@link AfkManager#executor}. */
+	/**
+	 * Cancels the {@link AfkManager#executor}.
+	 */
 	private void shutdown() {
 	  cancelled = true;
 	  isIdle = false;
 	}
 
-	/** Reschedules {@link AfkManager#executor}. */
+	/**
+	 * Reschedules {@link AfkManager#executor}.
+	 */
 	private void reschedule() {
 	  executor.schedule(this, (config.getBoolean(ConfigNode.BOT_SLOWMODE) ? 5 : 1), TimeUnit.SECONDS);
 	}

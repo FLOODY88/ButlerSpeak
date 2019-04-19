@@ -49,7 +49,6 @@ public enum ConfigNode {
 
   BADNAME_CHANNEL("badname.bypass-channel"),
   BADNAME_GROUPS("badname.bypass-groups"),
-  BADNAME_CHANNELS("badname.bypass-channel"),
   BADNAME_PATTERN("badname.pattern"),
   BADNAME_CHANNEL_ACTION("badname.channel-action"),
   BADNAME_CLIENT_ACTION("badname.client-action"),
@@ -67,7 +66,6 @@ public enum ConfigNode {
   SUPPORT_CREATE_CHANNEL("support.channel-create"),
   SUPPORT_CHANNEL_NAME("support.channel-name"),
   SUPPORT_NOTIFY_GROUPS("support.notify-groups"),
-  SUPPORT_NOTIFY_ACTION("support.notify-action"),
   SUPPORT_NOTIFY_MESSAGE("support.notify-message"),
   SUPPORT_NOTIFY_FAIL("support.message-fail"),
   SUPPORT_MESSAGE("support.message"),

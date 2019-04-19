@@ -23,7 +23,11 @@ import me.floody.butlerspeak.utils.Log;
 import java.io.*;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Properties;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Configuration handler for application. Access data via various getter methods.
@@ -44,7 +48,7 @@ public class Configuration {
   public Configuration() {
 	final File file = new File("ButlerSpeak.properties");
 	if (!file.exists()) {
-	  try (InputStream in = Configuration.class.getResourceAsStream("/ButlerSpeak_EXAMPLE.properties")) {
+	  try (InputStream in = Configuration.class.getResourceAsStream("/ButlerSpeak.example.properties")) {
 		Files.copy(in, file.toPath());
 		logger.info("Could not find configuration file, copying default configuration to " + file.toPath() +
 				"Please restart ButlerSpeak afterwards.");
@@ -65,22 +69,30 @@ public class Configuration {
 	}
   }
 
-  /** Returns the property's value as <code>String</code>. */
+  /**
+   * Returns the property's value as <code>String</code>.
+   */
   public String get(ConfigNode node) {
 	return properties.getProperty(node.getKey());
   }
 
-  /** Returns the property's value as <code>Integer</code>. */
+  /**
+   * Returns the property's value as <code>Integer</code>.
+   */
   public int getInt(ConfigNode node) {
 	return Integer.parseInt(properties.getProperty(node.getKey()));
   }
 
-  /** Returns the property's value as <code>Long</code>. */
+  /**
+   * Returns the property's value as <code>Long</code>.
+   */
   public long getLong(ConfigNode node) {
 	return Long.parseLong(properties.getProperty(node.getKey()));
   }
 
-  /** Returns the property's value as <code>Boolean</code>. */
+  /**
+   * Returns the property's value as <code>Boolean</code>.
+   */
   public boolean getBoolean(ConfigNode node) {
 	return Boolean.parseBoolean(properties.getProperty(node.getKey()));
   }
@@ -109,5 +121,19 @@ public class Configuration {
 	}
 
 	return tempIntArr;
+  }
+
+  /**
+   * Returns a new {@code List} containing the node's values as {@code Integer}.
+   */
+  public List<String> getStringList(ConfigNode node) {
+	return Arrays.asList(getStringArray(node));
+  }
+
+  /*
+   * Returns a new {@code List} containing the node's values as {@code String}.
+   */
+  public List<Integer> getIntegerList(ConfigNode node) {
+	return IntStream.of(getIntArray(node)).boxed().collect(Collectors.toList());
   }
 }

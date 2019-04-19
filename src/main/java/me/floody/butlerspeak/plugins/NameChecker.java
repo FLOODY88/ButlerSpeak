@@ -22,7 +22,6 @@ import com.github.theholywaffle.teamspeak3.TS3Api;
 import com.github.theholywaffle.teamspeak3.api.ChannelProperty;
 import com.github.theholywaffle.teamspeak3.api.event.*;
 import com.github.theholywaffle.teamspeak3.api.exception.TS3CommandFailedException;
-import com.github.theholywaffle.teamspeak3.api.wrapper.Channel;
 import com.github.theholywaffle.teamspeak3.api.wrapper.ChannelInfo;
 import com.github.theholywaffle.teamspeak3.api.wrapper.Client;
 import me.floody.butlerspeak.ButlerSpeak;
@@ -31,12 +30,12 @@ import me.floody.butlerspeak.config.Configuration;
 import me.floody.butlerspeak.utils.Log;
 
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 /**
  * Checks channel and client's name for forbidden words.
@@ -48,12 +47,15 @@ public class NameChecker extends TS3EventAdapter {
   private final ScheduledExecutorService executor;
   private final Map<Integer, CheckClientName> workers;
   private final Log logger;
+  private final List<String> regexPattern;
+  private final List<Integer> ignoredChannel;
+  private final List<Integer> ignoredGroups;
 
   /**
    * Initializes a new instance.
    * <p>
    * When first initialized, all clients and channels will be if they contain any forbidden words that matches the
-   * specified pattern. Also, it listens to {@link ClientJoinEvent}, {@link ChannelEditedEvent} and
+   * specified regexPattern. Also, it listens to {@link ClientJoinEvent}, {@link ChannelEditedEvent} and
    * {@link ChannelCreateEvent} to check the name upon changes.
    * </p>
    */
@@ -63,42 +65,30 @@ public class NameChecker extends TS3EventAdapter {
 	this.executor = new ScheduledThreadPoolExecutor(1);
 	this.workers = new HashMap<>();
 	this.logger = plugin.getAndSetLogger(this.getClass().getName());
+	this.regexPattern = config.getStringList(ConfigNode.BADNAME_PATTERN);
+	this.ignoredChannel = config.getIntegerList(ConfigNode.BADNAME_CHANNEL);
+	this.ignoredGroups = config.getIntegerList(ConfigNode.BADNAME_GROUPS);
 
-	// On first start, check the existing channels for bad names.
-	for (Channel channel : api.getChannels()) {
-	  int channelId = channel.getId();
-	  for (int needle : config.getIntArray(ConfigNode.BADNAME_CHANNEL)) {
-		if (channelId == needle) {
-		  // Filter any channel that should be ignored.
-		  continue;
-		}
-
-		checkChannel(channelId);
-	  }
-	}
-
-	// On first start, check connected clients for bad names.
-	for (Client client : api.getClients()) {
-	  if (!client.isRegularClient()) {
-		// Filter querys.
-		continue;
+	// On first start, check the existing channels and connected clients for bad names.
+	api.getChannels().forEach(channel -> checkChannel(channel.getId()));
+	api.getClients().forEach(client -> {
+	  if (Arrays.stream(client.getServerGroups()).anyMatch((ignoredGroups::contains))) {
+		return;
 	  }
 
-	  for (int needle : config.getIntArray(ConfigNode.BADNAME_GROUPS)) {
-		if (client.isInServerGroup(needle)) {
-		  // Filter any client that is in a server group that should be ignored.
-		  continue;
-		}
+	  final CheckClientName worker = new CheckClientName(client);
+	  workers.put(client.getId(), worker);
+	  executor.schedule(worker, 0, TimeUnit.SECONDS);
 
-		int clientId = client.getId();
-		final CheckClientName worker = new CheckClientName(client);
-		workers.put(clientId, worker);
-		executor.schedule(worker, 0, TimeUnit.SECONDS);
+	  // After scheduling the task for a client, wait a bit to prevent flooding.
+	  try {
+		Thread.sleep(350);
+	  } catch (InterruptedException ex) {
+		// Nothing
 	  }
-	}
+	});
   }
 
-  /** When a client connects to the server, the nickname will be checked for any forbidden words. */
   @Override
   public void onClientJoin(ClientJoinEvent e) {
 	final Client client;
@@ -106,6 +96,10 @@ public class NameChecker extends TS3EventAdapter {
 	  client = api.getClientInfo(e.getClientId());
 	} catch (TS3CommandFailedException ex) {
 	  // Client is a query, do nothing.
+	  return;
+	}
+
+	if (client.isServerQueryClient() || IntStream.of(client.getServerGroups()).anyMatch(ignoredGroups::contains)) {
 	  return;
 	}
 
@@ -137,49 +131,60 @@ public class NameChecker extends TS3EventAdapter {
   }
 
   /**
-   * Checks whether the channel matches the RegEx pattern. If so, the channel will either be renamed or deleted.
+   * Checks whether the channel matches the RegEx regexPattern. If so, the channel will either be renamed or deleted.
    *
    * @param channelId
    * 		The channel to be checked
    */
   private void checkChannel(int channelId) {
+	if (ignoredChannel.contains(channelId)) {
+	  return;
+	}
+
 	ChannelInfo channelInfo = api.getChannelInfo(channelId);
 	String channelName = channelInfo.getName();
-
-	for (String pattern : config.getStringArray(ConfigNode.BADNAME_PATTERN)) {
-	  if (!channelName.matches(pattern)) {
-		// Filter channel that do not match the pattern.
-		continue;
+	regexPattern.forEach(pattern -> {
+	  Pattern p = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
+	  if (!p.matcher(channelName).matches()) {
+		return;
 	  }
 
-	  String channelAction = config.get(ConfigNode.BADNAME_CHANNEL_ACTION);
-	  if (channelAction.equals("rename")) {
-		try {
-		  SimpleDateFormat formattedDate = new SimpleDateFormat();
-		  formattedDate.applyPattern("EE', 'dd. MMMM yyyy hh:mm");
+	  switch (config.get(ConfigNode.BADNAME_CHANNEL_ACTION)) {
+		case "rename":
+		  SimpleDateFormat simpleDate = new SimpleDateFormat();
+		  simpleDate.applyPattern("dd-MMM, HH:mm");
 
-		  final String newChannelName = config.get(ConfigNode.BADNAME_RENAME).replaceAll("%date%",
-				  formattedDate.format(new Date())).replaceAll(" ", "\u0020");
-		  // Edit the channel to the specified name and optionally add a timestamp to prevent other channels from
-		  // being deleted if one channel already has the censored name.
-		  api.editChannel(channelId, ChannelProperty.CHANNEL_NAME, newChannelName);
-		  logger.info("Renamed channel " + channelId + " to " + newChannelName + " for using forbidden words.");
-		} catch (TS3CommandFailedException ex) {
-		  api.deleteChannel(channelId);
-		  logger.info("Failed to rename channel " + channelId + ", channel has been deleted instead.");
-		}
-	  } else if (channelAction.equals("delete")) {
-		try {
-		  api.deleteChannel(channelId);
-		  logger.info("Deleted channel " + channelId + " for using forbidden words.");
-		} catch (TS3CommandFailedException ex) {
-		  ex.printStackTrace();
-		}
+		  String newChannelName = config.get(ConfigNode.BADNAME_RENAME)
+				  .replaceAll("%date%", simpleDate.format(new Date()))
+				  .replaceAll("\\s+", "\u0020");
+
+		  try {
+			api.editChannel(channelId, ChannelProperty.CHANNEL_NAME, newChannelName);
+		  } catch (TS3CommandFailedException ex) {
+			api.deleteChannel(channelId);
+		  }
+		  break;
+		case "delete":
+		  try {
+			api.deleteChannel(channelId);
+		  } catch (TS3CommandFailedException ex) {
+			logger.error("Could not delete channel: " + channelName, ex);
+		  }
+		  break;
 	  }
+	});
+
+	// Needs to wait a moment to prevent flooding.
+	try {
+	  Thread.sleep(350);
+	} catch (InterruptedException ex) {
+	  // Nothing
 	}
   }
 
-  /** Checks whether the client's nickname contains any forbidden words. */
+  /**
+   * Checks whether the client's nickname contains any forbidden words.
+   */
   private class CheckClientName implements Runnable {
 
 	private boolean cancelled;
@@ -196,10 +201,11 @@ public class NameChecker extends TS3EventAdapter {
 		return;
 	  }
 
-	  for (String pattern : config.getStringArray(ConfigNode.BADNAME_PATTERN)) {
-		if (!client.getNickname().matches(pattern)) {
-		  // Filter clients that do not match the pattern.
-		  continue;
+	  String clientName = client.getNickname();
+	  regexPattern.forEach(pattern -> {
+		Pattern p = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
+		if (!p.matcher(clientName).matches()) {
+		  return;
 		}
 
 		switch (config.get(ConfigNode.BADNAME_CLIENT_ACTION)) {
@@ -208,16 +214,15 @@ public class NameChecker extends TS3EventAdapter {
 			  break;
 			}
 
-			api.pokeClient(client.getId(), config.get(ConfigNode.BADNAME_CLIENT_MESSAGE));
 			isWarned = true;
-			logger.info("Client " + client.getNickname() + " has been warned for using forbidden words.");
+			api.pokeClient(client.getId(), config.get(ConfigNode.BADNAME_CLIENT_MESSAGE));
 			break;
 		  case "kick":
 			api.kickClientFromServer(config.get(ConfigNode.BADNAME_CLIENT_KICK_MESSAGE), client);
-			logger.info("Client " + client.getNickname() + " has been kicked for using forbidden words.");
 			break;
 		}
-	  }
+	  });
+
 	  executor.schedule(this, (config.getBoolean(ConfigNode.BOT_SLOWMODE) ? 5 : 1), TimeUnit.SECONDS);
 	}
 
