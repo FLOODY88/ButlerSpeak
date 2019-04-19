@@ -18,10 +18,10 @@
 
 package me.floody.butlerspeak.config;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import me.floody.butlerspeak.utils.Log;
+
+import java.io.*;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.util.Properties;
 
@@ -31,6 +31,7 @@ import java.util.Properties;
 public class Configuration {
 
   private final Properties properties;
+  private final Log logger = new Log(this.getClass().getName());
 
   /**
    * Constructs a new instance.
@@ -42,23 +43,25 @@ public class Configuration {
    */
   public Configuration() {
 	final File file = new File("ButlerSpeak.properties");
-
 	if (!file.exists()) {
 	  try (InputStream in = Configuration.class.getResourceAsStream("/ButlerSpeak_EXAMPLE.properties")) {
 		Files.copy(in, file.toPath());
+		logger.info("Could not find configuration file, copying default configuration to " + file.toPath() +
+				"Please restart ButlerSpeak afterwards.");
 		// Shutdown since the bot cannot connect to the server without an adjusted configuration file.
 		System.exit(0);
 	  } catch (IOException e) {
-		e.printStackTrace();
+		logger.error("Could not copy default configuration. Please check the permissions and try again afterwards.", e);
+		System.exit(1);
 	  }
 	}
 
 	this.properties = new Properties();
 	try {
-	  properties.load(new FileInputStream(file));
+	  properties.load(new InputStreamReader(new FileInputStream(file), Charset.forName("UTF-8")));
 	} catch (IOException e) {
-	  e.printStackTrace();
-	  System.exit(0);
+	  logger.error("Could not load " + file.toString(), e);
+	  System.exit(1);
 	}
   }
 
@@ -89,7 +92,8 @@ public class Configuration {
    * </p>
    */
   public String[] getStringArray(ConfigNode node) {
-	return properties.getProperty(node.getKey()).replaceAll("\\s+", "").split(",");
+	return properties.getProperty(node.getKey())
+			.replaceAll("\\s+", "").split(",");
   }
 
   /**
