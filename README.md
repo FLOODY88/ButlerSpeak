@@ -9,14 +9,14 @@ An open-source TeamSpeak 3 server query bot written in Java.
 1. **Advertisement**: Broadcasts a message to the whole server every ``X`` minutes.
 2. **Afk Manager**: Moves a client to a specific channel when being idle for more than ``X`` minutes.
 3. **Name Checker**: 
-   - Scans existing and new channels for forbidding words. On a match, the coressponding channel will either be 
+   - Scans existing and new channels for forbidding words. On a match, the corresponding  channel will either be 
      deleted or renamed.
    - Scans all clients for forbidden words in their names. On a match, the corresponding client will either be 
      kicked or warned.
 4. **Recording Checker**: Searches for clients that are recording in forbidden channels. The corresponding client will
    either be kicked from the server or the server (and warned).
 5. **Support**: When a client enters a certain channel, certain groups will be notified that a client requested help.
-   - Optional: A sub-channel of the support-channel can be created once the client enteres the specific channel
+   - Optional: A sub-channel of the support-channel can be created once the client enters the specific channel
 6. **Welcome-Message**: Sends a message to certain groups when connecting to the server.
 
 All features can be disabled by editing the corresponding configuration file, for more information please see [here](#butlerspeak-configuration).
@@ -85,6 +85,6 @@ bot.plugins=welcome, badname, recording, support, advertisement, afk
 
 ## Questions, bugs or enhancements?
 
-All features are tested multiple times on bigger servers, but you can still run into some issues. Also, please get in touch with me if you have any questions for ehancements for further releases.
+All features are tested multiple times on bigger servers, but you can still run into some issues. Also, please get in touch with me if you have any questions or suggestions for enhancements in future releases.
 
 When any of the above matches your current situation, please let me know [here](../../issues). I'll try to help you as soon as possible.
